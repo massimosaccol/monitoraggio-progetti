@@ -145,7 +145,7 @@ def load_ore_mese_data(uploaded_ore_file):
   return df_ore
 
 
-# --- SIDEBAR ---
+# --- SIDEBAR --- -
 st.sidebar.title("🛠️ Selezione Progetto")
 uploaded_file = st.sidebar.file_uploader(
     "1. Carica CSV Monitoraggio", type=["csv"], key="main_csv"
