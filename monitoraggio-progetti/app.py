@@ -194,6 +194,10 @@ if df_raw is not None and not df_raw.empty:
         "Stato Progetto",
         options=sorted(df_raw[col_stato_proj].dropna().unique()) if col_stato_proj in df_raw.columns else []
     )
+    filter_stato_azione = st.sidebar.multiselect(
+        "Stato Azione",
+        options=sorted(df_raw["Stato azione"].dropna().unique()) if "Stato azione" in df_raw.columns else []
+    )
     filter_cod_progetto = st.sidebar.multiselect(
         "Codice Progetto",
         options=sorted(df_raw["Codice Progetto"].dropna().unique()) if "Codice Progetto" in df_raw.columns else []
@@ -220,6 +224,8 @@ if df_raw is not None and not df_raw.empty:
         df_filtered = df_filtered[df_filtered["Codice Commessa"].isin(filter_commessa)]
     if filter_stato and col_stato_proj in df_filtered.columns:
         df_filtered = df_filtered[df_filtered[col_stato_proj].isin(filter_stato)]
+    if filter_stato_azione and "Stato azione" in df_filtered.columns:
+        df_filtered = df_filtered[df_filtered["Stato azione"].isin(filter_stato_azione)]
     if filter_cod_progetto and "Codice Progetto" in df_filtered.columns:
         df_filtered = df_filtered[df_filtered["Codice Progetto"].isin(filter_cod_progetto)]
     if filter_titolo and "Titolo" in df_filtered.columns:
