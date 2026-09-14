@@ -1,5 +1,6 @@
 import io
 import os
+import re
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -36,10 +37,20 @@ def format_date_clean(val):
         return ""
 
 
+def clean_for_excel(val):
+    """Rimuove i caratteri di controllo non supportati dallo standard XML/Excel."""
+    if isinstance(val, str):
+        return re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]', '', val)
+    return val
+
+
 def to_excel_download(df, sheet_name="Dati"):
     output = io.BytesIO()
+    # Pulizia caratteri non validi per openpyxl
+    df_clean = df.applymap(clean_for_excel) if hasattr(df, 'applymap') else df.map(clean_for_excel)
+    
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name=sheet_name)
+        df_clean.to_excel(writer, index=False, sheet_name=sheet_name)
     return output.getvalue()
 
 
@@ -508,3 +519,4 @@ if df_raw is not None and not df_raw.empty:
                     st.warning("File 'Ore_Mese_Modulo.csv' non trovato.")
 else:
     st.error("⚠️ Nessun dato trovato nel file. Verificare il caricamento dei CSV.")
+    
