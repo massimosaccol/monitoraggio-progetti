@@ -160,14 +160,19 @@ if df_raw is not None and not df_raw.empty:
     st.sidebar.markdown("---")
     st.sidebar.title("🔍 Filtri Cruscotto Progetti")
 
+    # Individuazione colonna stato progetto
+    col_stato_proj = "Stato progetto" if "Stato progetto" in df_raw.columns else (
+        "Stato commessa" if "Stato commessa" in df_raw.columns else "Stato"
+    )
+
     # --- FILTRI IN SIDEBAR ---
     filter_commessa = st.sidebar.multiselect(
         "Codice Commessa",
         options=sorted(df_raw["Codice Commessa"].dropna().unique()) if "Codice Commessa" in df_raw.columns else []
     )
     filter_stato = st.sidebar.multiselect(
-        "Stato Progetto / Azione",
-        options=sorted(df_raw["Stato azione"].dropna().unique()) if "Stato azione" in df_raw.columns else []
+        "Stato Progetto",
+        options=sorted(df_raw[col_stato_proj].dropna().unique()) if col_stato_proj in df_raw.columns else []
     )
     filter_cod_progetto = st.sidebar.multiselect(
         "Codice Progetto",
@@ -189,8 +194,8 @@ if df_raw is not None and not df_raw.empty:
 
     if filter_commessa:
         df_filtered = df_filtered[df_filtered["Codice Commessa"].isin(filter_commessa)]
-    if filter_stato and "Stato azione" in df_filtered.columns:
-        df_filtered = df_filtered[df_filtered["Stato azione"].isin(filter_stato)]
+    if filter_stato and col_stato_proj in df_filtered.columns:
+        df_filtered = df_filtered[df_filtered[col_stato_proj].isin(filter_stato)]
     if filter_cod_progetto and "Codice Progetto" in df_filtered.columns:
         df_filtered = df_filtered[df_filtered["Codice Progetto"].isin(filter_cod_progetto)]
     if filter_titolo and "Titolo" in df_filtered.columns:
@@ -232,15 +237,13 @@ if df_raw is not None and not df_raw.empty:
             Rendicontato_Tot=("Totale rendicontato", "sum") if "Totale rendicontato" in df_filtered.columns else ("Ore", "count")
         ).reset_index()
 
-        df_grouped["Progetto_Label"] = df_grouped["Codice Commessa"].astype(str) + " - " + df_grouped["Titolo"].astype(str)
-
         fig_comp = px.bar(
             df_grouped,
-            x="Progetto_Label",
+            x="Codice Commessa",
             y="Erogato_Medio",
             range_y=[0, 100],
             text_auto=".1f",
-            labels={"Progetto_Label": "Progetto / Commessa", "Erogato_Medio": "% Completamento (Erogato)"},
+            labels={"Codice Commessa": "Codice Commessa", "Erogato_Medio": "% Completamento (Erogato)"},
             color="Erogato_Medio",
             color_continuous_scale="Blues"
         )
@@ -249,9 +252,42 @@ if df_raw is not None and not df_raw.empty:
 
     st.divider()
 
-    # --- TABELLA DI RAGGRUPPAMENTO SINTETICO ---
-    st.subheader("📋 Riepilogo Progetti")
-    st.dataframe(df_grouped, use_container_width=True, hide_index=True)
+    # --- TABS PER RIEPILOGO PROGETTI ED AZIONI ---
+    tab_p, tab_a = st.tabs(["📋 Riepilogo Progetti", "📑 Riepilogo Azioni"])
+
+    with tab_p:
+        df_proj_disp = df_grouped.copy()
+        df_proj_disp["Erogato Medio"] = df_proj_disp["Erogato_Medio"].apply(lambda x: f"{x:.1f}%")
+        df_proj_disp["Pianificato Medio"] = df_proj_disp["Pianificato_Medio"].apply(lambda x: f"{x:.1f}%")
+        df_proj_disp["Budget Totale"] = df_proj_disp["Budget_Tot"].apply(lambda x: f"€ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+        df_proj_disp["Rendicontato Totale"] = df_proj_disp["Rendicontato_Tot"].apply(lambda x: f"€ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+
+        drop_cols = ["Erogato_Medio", "Pianificato_Medio", "Budget_Tot", "Rendicontato_Tot"]
+        df_proj_disp = df_proj_disp.drop(columns=[c for c in drop_cols if c in df_proj_disp.columns])
+
+        st.dataframe(df_proj_disp, use_container_width=True, hide_index=True)
+
+    with tab_a:
+        action_fields = [
+            "Codice Commessa", "Titolo", "Ufficio Riferimento", "Codice Azione",
+            "Descrizione Azione", "ID Azione (FIMA-A39)", "HUB",
+            "Descrizione Tipo Intervento", "Riferimento - Note", "Ore",
+            "Descr Tipo Intervento", "Uff competenza", "Stato azione",
+            "Data Stato", "Pianificato", "Erogato", "Annullato S/N",
+            "Data Inizio", "Data Fine", "Monitoraggio Effettuato"
+        ]
+
+        cols_actions_exist = [c for c in action_fields if c in df_filtered.columns]
+        df_actions_disp = df_filtered[cols_actions_exist].copy()
+
+        if "Pianificato" in df_actions_disp.columns:
+            df_actions_disp["Pianificato"] = df_actions_disp["Pianificato"].apply(lambda x: f"{x:.0f}%" if pd.notnull(x) else "")
+            df_actions_disp.rename(columns={"Pianificato": "% Pianificato"}, inplace=True)
+        if "Erogato" in df_actions_disp.columns:
+            df_actions_disp["Erogato"] = df_actions_disp["Erogato"].apply(lambda x: f"{x:.0f}%" if pd.notnull(x) else "")
+            df_actions_disp.rename(columns={"Erogato": "% Erogato"}, inplace=True)
+
+        st.dataframe(df_actions_disp, use_container_width=True, hide_index=True, height=500)
 
     st.divider()
 
