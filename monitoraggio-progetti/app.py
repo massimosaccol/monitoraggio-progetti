@@ -1,6 +1,6 @@
+import io
 import os
 import pandas as pd
-import plotly.express as px
 import streamlit as st
 
 st.set_page_config(
@@ -33,6 +33,13 @@ def format_date_clean(val):
         return formatted
     except Exception:
         return ""
+
+
+def to_excel_download(df, sheet_name="Dati"):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name=sheet_name)
+    return output.getvalue()
 
 
 @st.cache_data
@@ -73,7 +80,6 @@ def load_main_data(uploaded_file):
 
     df.columns = df.columns.str.strip().str.replace("\ufeff", "")
 
-    # Normalizzazione nome colonna Tipo Intervento
     if "Descr Tipo Intervento" in df.columns:
         df.rename(columns={"Descr Tipo Intervento": "Tipo Intervento"}, inplace=True)
     elif "Descrizione Tipo Intervento" in df.columns:
@@ -194,17 +200,9 @@ if df_raw is not None and not df_raw.empty:
         "Stato Progetto",
         options=sorted(df_raw[col_stato_proj].dropna().unique()) if col_stato_proj in df_raw.columns else []
     )
-    filter_stato_azione = st.sidebar.multiselect(
-        "Stato Azione",
-        options=sorted(df_raw["Stato azione"].dropna().unique()) if "Stato azione" in df_raw.columns else []
-    )
     filter_cod_progetto = st.sidebar.multiselect(
         "Codice Progetto",
         options=sorted(df_raw["Codice Progetto"].dropna().unique()) if "Codice Progetto" in df_raw.columns else []
-    )
-    filter_titolo = st.sidebar.multiselect(
-        "Titolo",
-        options=sorted(df_raw["Titolo"].dropna().unique()) if "Titolo" in df_raw.columns else []
     )
     filter_ufficio = st.sidebar.multiselect(
         "Ufficio Riferimento",
@@ -216,6 +214,10 @@ if df_raw is not None and not df_raw.empty:
         "Tipo Intervento",
         options=sorted(df_raw["Tipo Intervento"].dropna().unique()) if "Tipo Intervento" in df_raw.columns else []
     )
+    filter_stato_azione = st.sidebar.multiselect(
+        "Stato Azione",
+        options=sorted(df_raw["Stato azione"].dropna().unique()) if "Stato azione" in df_raw.columns else []
+    )
 
     # Applicazione filtri
     df_filtered = df_raw.copy()
@@ -224,12 +226,8 @@ if df_raw is not None and not df_raw.empty:
         df_filtered = df_filtered[df_filtered["Codice Commessa"].isin(filter_commessa)]
     if filter_stato and col_stato_proj in df_filtered.columns:
         df_filtered = df_filtered[df_filtered[col_stato_proj].isin(filter_stato)]
-    if filter_stato_azione and "Stato azione" in df_filtered.columns:
-        df_filtered = df_filtered[df_filtered["Stato azione"].isin(filter_stato_azione)]
     if filter_cod_progetto and "Codice Progetto" in df_filtered.columns:
         df_filtered = df_filtered[df_filtered["Codice Progetto"].isin(filter_cod_progetto)]
-    if filter_titolo and "Titolo" in df_filtered.columns:
-        df_filtered = df_filtered[df_filtered["Titolo"].isin(filter_titolo)]
     if filter_ufficio:
         if "Ufficio Riferimento" in df_filtered.columns:
             df_filtered = df_filtered[df_filtered["Ufficio Riferimento"].isin(filter_ufficio)]
@@ -237,6 +235,8 @@ if df_raw is not None and not df_raw.empty:
             df_filtered = df_filtered[df_filtered["HUB"].isin(filter_ufficio)]
     if filter_tipo_intervento and "Tipo Intervento" in df_filtered.columns:
         df_filtered = df_filtered[df_filtered["Tipo Intervento"].isin(filter_tipo_intervento)]
+    if filter_stato_azione and "Stato azione" in df_filtered.columns:
+        df_filtered = df_filtered[df_filtered["Stato azione"].isin(filter_stato_azione)]
 
     # --- MAIN CONTENT ---
     st.title("📊 Cruscotto Generale Progetti")
@@ -258,7 +258,7 @@ if df_raw is not None and not df_raw.empty:
     st.divider()
 
     # --- RAGGRUPPAMENTO PER TABELLA PROGETTI ---
-    group_cols = [c for c in ["Codice Commessa", "Titolo"] if c in df_filtered.columns]
+    group_cols = [c for c in ["Codice Commessa", col_stato_proj, "Titolo"] if c in df_filtered.columns]
     if group_cols:
         df_grouped = df_filtered.groupby(group_cols).agg(
             Erogato_Medio=("Erogato", "mean") if "Erogato" in df_filtered.columns else ("Ore", "count"),
@@ -273,6 +273,10 @@ if df_raw is not None and not df_raw.empty:
     with tab_p:
         if group_cols:
             df_proj_disp = df_grouped.copy()
+
+            if col_stato_proj in df_proj_disp.columns:
+                df_proj_disp.rename(columns={col_stato_proj: "Stato Progetto"}, inplace=True)
+
             df_proj_disp["Erogato Medio"] = df_proj_disp["Erogato_Medio"].apply(lambda x: f"{x:.1f}%")
             df_proj_disp["Pianificato Medio"] = df_proj_disp["Pianificato_Medio"].apply(lambda x: f"{x:.1f}%")
             df_proj_disp["Budget Totale"] = df_proj_disp["Budget_Tot"].apply(lambda x: f"€ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
@@ -282,6 +286,14 @@ if df_raw is not None and not df_raw.empty:
             df_proj_disp = df_proj_disp.drop(columns=[c for c in drop_cols if c in df_proj_disp.columns])
 
             st.dataframe(df_proj_disp, use_container_width=True, hide_index=True)
+
+            excel_p = to_excel_download(df_proj_disp, sheet_name="Riepilogo Progetti")
+            st.download_button(
+                label="📥 Scarica Riepilogo Progetti (Excel)",
+                data=excel_p,
+                file_name="Riepilogo_Progetti.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
 
     with tab_a:
         action_fields = [
@@ -313,6 +325,14 @@ if df_raw is not None and not df_raw.empty:
                 df_actions_disp[dcol] = df_actions_disp[dcol].apply(format_date_clean)
 
         st.dataframe(df_actions_disp, use_container_width=True, hide_index=True, height=500)
+
+        excel_a = to_excel_download(df_actions_disp, sheet_name="Riepilogo Azioni")
+        st.download_button(
+            label="📥 Scarica Riepilogo Azioni (Excel)",
+            data=excel_a,
+            file_name="Riepilogo_Azioni.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
 
     st.divider()
 
@@ -377,7 +397,16 @@ if df_raw is not None and not df_raw.empty:
 
             st.dataframe(df_out, use_container_width=True, hide_index=True, height=400)
 
+            excel_d = to_excel_download(df_out, sheet_name=f"Commessa_{selected_commessa}")
+            st.download_button(
+                label=f"📥 Scarica Dettaglio Commessa {selected_commessa} (Excel)",
+                data=excel_d,
+                file_name=f"Dettaglio_Commessa_{selected_commessa}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+
         with tab2:
+            import plotly.express as px
             col_g1, col_g2 = st.columns(2)
             with col_g1:
                 st.subheader("Budget vs Rendicontato per Azione")
@@ -455,6 +484,14 @@ if df_raw is not None and not df_raw.empty:
                     )
 
                     st.dataframe(df_rend_disp, use_container_width=True, hide_index=True)
+
+                    excel_m = to_excel_download(df_rend_disp, sheet_name=f"Rendiconto_Mensile_{selected_commessa}")
+                    st.download_button(
+                        label=f"📥 Scarica Rendiconto Mensile Commessa {selected_commessa} (Excel)",
+                        data=excel_m,
+                        file_name=f"Rendiconto_Mensile_{selected_commessa}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    )
                 else:
                     st.info(f"Nessun dato ore mensile per la commessa {selected_commessa}.")
             else:
