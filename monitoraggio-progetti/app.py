@@ -20,6 +20,21 @@ st.markdown(
 )
 
 
+def format_date_clean(val):
+    if pd.isnull(val):
+        return ""
+    try:
+        dt = pd.to_datetime(val, errors="coerce")
+        if pd.isnull(dt):
+            return ""
+        formatted = dt.strftime("%d/%m/%Y")
+        if formatted in ["01/01/1900", "31/12/2099"]:
+            return ""
+        return formatted
+    except Exception:
+        return ""
+
+
 @st.cache_data
 def load_main_data(uploaded_file):
     df = None
@@ -57,6 +72,12 @@ def load_main_data(uploaded_file):
         return None
 
     df.columns = df.columns.str.strip().str.replace("\ufeff", "")
+
+    # Normalizzazione nome colonna Tipo Intervento
+    if "Descr Tipo Intervento" in df.columns:
+        df.rename(columns={"Descr Tipo Intervento": "Tipo Intervento"}, inplace=True)
+    elif "Descrizione Tipo Intervento" in df.columns:
+        df.rename(columns={"Descrizione Tipo Intervento": "Tipo Intervento"}, inplace=True)
 
     for c in ["Codice Commessa", "Codice Progetto", "Codice Azione"]:
         if c in df.columns:
@@ -160,7 +181,6 @@ if df_raw is not None and not df_raw.empty:
     st.sidebar.markdown("---")
     st.sidebar.title("🔍 Filtri Cruscotto Progetti")
 
-    # Individuazione colonna stato progetto
     col_stato_proj = "Stato progetto" if "Stato progetto" in df_raw.columns else (
         "Stato commessa" if "Stato commessa" in df_raw.columns else "Stato"
     )
@@ -188,6 +208,10 @@ if df_raw is not None and not df_raw.empty:
             sorted(df_raw["HUB"].dropna().unique()) if "HUB" in df_raw.columns else []
         )
     )
+    filter_tipo_intervento = st.sidebar.multiselect(
+        "Tipo Intervento",
+        options=sorted(df_raw["Tipo Intervento"].dropna().unique()) if "Tipo Intervento" in df_raw.columns else []
+    )
 
     # Applicazione filtri
     df_filtered = df_raw.copy()
@@ -205,6 +229,8 @@ if df_raw is not None and not df_raw.empty:
             df_filtered = df_filtered[df_filtered["Ufficio Riferimento"].isin(filter_ufficio)]
         elif "HUB" in df_filtered.columns:
             df_filtered = df_filtered[df_filtered["HUB"].isin(filter_ufficio)]
+    if filter_tipo_intervento and "Tipo Intervento" in df_filtered.columns:
+        df_filtered = df_filtered[df_filtered["Tipo Intervento"].isin(filter_tipo_intervento)]
 
     # --- MAIN CONTENT ---
     st.title("📊 Cruscotto Generale Progetti")
@@ -225,9 +251,7 @@ if df_raw is not None and not df_raw.empty:
 
     st.divider()
 
-    # --- GRAFICO COMPLETAMENTO PROGETTI ---
-    st.subheader("📈 Percentuale di Completamento per Progetto")
-
+    # --- RAGGRUPPAMENTO PER TABELLA PROGETTI ---
     group_cols = [c for c in ["Codice Commessa", "Titolo"] if c in df_filtered.columns]
     if group_cols:
         df_grouped = df_filtered.groupby(group_cols).agg(
@@ -237,55 +261,50 @@ if df_raw is not None and not df_raw.empty:
             Rendicontato_Tot=("Totale rendicontato", "sum") if "Totale rendicontato" in df_filtered.columns else ("Ore", "count")
         ).reset_index()
 
-        fig_comp = px.bar(
-            df_grouped,
-            x="Codice Commessa",
-            y="Erogato_Medio",
-            range_y=[0, 100],
-            text_auto=".1f",
-            labels={"Codice Commessa": "Codice Commessa", "Erogato_Medio": "% Completamento (Erogato)"},
-            color="Erogato_Medio",
-            color_continuous_scale="Blues"
-        )
-        fig_comp.update_layout(xaxis_tickangle=-45, coloraxis_showscale=False)
-        st.plotly_chart(fig_comp, use_container_width=True)
-
-    st.divider()
-
     # --- TABS PER RIEPILOGO PROGETTI ED AZIONI ---
     tab_p, tab_a = st.tabs(["📋 Riepilogo Progetti", "📑 Riepilogo Azioni"])
 
     with tab_p:
-        df_proj_disp = df_grouped.copy()
-        df_proj_disp["Erogato Medio"] = df_proj_disp["Erogato_Medio"].apply(lambda x: f"{x:.1f}%")
-        df_proj_disp["Pianificato Medio"] = df_proj_disp["Pianificato_Medio"].apply(lambda x: f"{x:.1f}%")
-        df_proj_disp["Budget Totale"] = df_proj_disp["Budget_Tot"].apply(lambda x: f"€ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-        df_proj_disp["Rendicontato Totale"] = df_proj_disp["Rendicontato_Tot"].apply(lambda x: f"€ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+        if group_cols:
+            df_proj_disp = df_grouped.copy()
+            df_proj_disp["Erogato Medio"] = df_proj_disp["Erogato_Medio"].apply(lambda x: f"{x:.1f}%")
+            df_proj_disp["Pianificato Medio"] = df_proj_disp["Pianificato_Medio"].apply(lambda x: f"{x:.1f}%")
+            df_proj_disp["Budget Totale"] = df_proj_disp["Budget_Tot"].apply(lambda x: f"€ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+            df_proj_disp["Rendicontato Totale"] = df_proj_disp["Rendicontato_Tot"].apply(lambda x: f"€ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 
-        drop_cols = ["Erogato_Medio", "Pianificato_Medio", "Budget_Tot", "Rendicontato_Tot"]
-        df_proj_disp = df_proj_disp.drop(columns=[c for c in drop_cols if c in df_proj_disp.columns])
+            drop_cols = ["Erogato_Medio", "Pianificato_Medio", "Budget_Tot", "Rendicontato_Tot"]
+            df_proj_disp = df_proj_disp.drop(columns=[c for c in drop_cols if c in df_proj_disp.columns])
 
-        st.dataframe(df_proj_disp, use_container_width=True, hide_index=True)
+            st.dataframe(df_proj_disp, use_container_width=True, hide_index=True)
 
     with tab_a:
         action_fields = [
             "Codice Commessa", "Titolo", "Ufficio Riferimento", "Codice Azione",
             "Descrizione Azione", "ID Azione (FIMA-A39)", "HUB",
-            "Descrizione Tipo Intervento", "Riferimento - Note", "Ore",
-            "Descr Tipo Intervento", "Uff competenza", "Stato azione",
-            "Data Stato", "Pianificato", "Erogato", "Annullato S/N",
-            "Data Inizio", "Data Fine", "Monitoraggio Effettuato"
+            "Tipo Intervento", "Riferimento - Note", "Ore",
+            "Uff competenza", "Stato azione", "Data Stato", "Pianificato",
+            "Erogato", "Annullato S/N", "Data Inizio", "Data Fine", "Monitoraggio Effettuato"
         ]
 
         cols_actions_exist = [c for c in action_fields if c in df_filtered.columns]
         df_actions_disp = df_filtered[cols_actions_exist].copy()
 
-        if "Pianificato" in df_actions_disp.columns:
+        if "% Pianificato" in df_actions_disp.columns:
+            df_actions_disp["% Pianificato"] = df_actions_disp["% Pianificato"].apply(lambda x: f"{x:.0f}%" if pd.notnull(x) else "")
+        elif "Pianificato" in df_actions_disp.columns:
             df_actions_disp["Pianificato"] = df_actions_disp["Pianificato"].apply(lambda x: f"{x:.0f}%" if pd.notnull(x) else "")
             df_actions_disp.rename(columns={"Pianificato": "% Pianificato"}, inplace=True)
-        if "Erogato" in df_actions_disp.columns:
+
+        if "% Erogato" in df_actions_disp.columns:
+            df_actions_disp["% Erogato"] = df_actions_disp["% Erogato"].apply(lambda x: f"{x:.0f}%" if pd.notnull(x) else "")
+        elif "Erogato" in df_actions_disp.columns:
             df_actions_disp["Erogato"] = df_actions_disp["Erogato"].apply(lambda x: f"{x:.0f}%" if pd.notnull(x) else "")
             df_actions_disp.rename(columns={"Erogato": "% Erogato"}, inplace=True)
+
+        date_cols = ["Data Stato", "Data Inizio", "Data Fine"]
+        for dcol in date_cols:
+            if dcol in df_actions_disp.columns:
+                df_actions_disp[dcol] = df_actions_disp[dcol].apply(format_date_clean)
 
         st.dataframe(df_actions_disp, use_container_width=True, hide_index=True, height=500)
 
@@ -346,7 +365,7 @@ if df_raw is not None and not df_raw.empty:
                         lambda x: f"€ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if pd.notnull(x) else "€ 0,00"
                     )
                 elif col in ["DATA INIZIO", "DATA FINE"]:
-                    df_out[col] = pd.to_datetime(df_disp[col], errors="coerce").dt.strftime("%d/%m/%Y").fillna("")
+                    df_out[col] = df_disp[col].apply(format_date_clean)
                 else:
                     df_out[col] = df_disp[col].astype(str).replace("nan", "").fillna("")
 
@@ -436,3 +455,4 @@ if df_raw is not None and not df_raw.empty:
                 st.warning("File 'Ore_Mese_Modulo.csv' non trovato.")
 else:
     st.error("⚠️ Nessun dato trovato nel file. Verificare il caricamento dei CSV.")
+    
